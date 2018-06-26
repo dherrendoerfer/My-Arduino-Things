@@ -3,6 +3,22 @@
 * License: GPLv2
 *
 * Project: Use sandwich toaster oven for reflow processing
+*
+* Connections are:
+* For the LCD:  PIN4
+*               PIN5
+*               PIN6
+*               PIN7
+*               PIN8
+*               PIN9
+*
+* For the temp-probe:
+*               PIN2 (SCK)
+*               PIN3 (CS)
+*               PIN11 (SO)
+*
+* For the SSR to the Heater:
+*               PIN13 
 */
 
 
