@@ -1,0 +1,218 @@
+/*
+ * This file is part of CPLEDBar.
+ *                      ( The Crappy Pixel LED Bar )
+ *
+ * Copyright (C) 2018  D.Herrendoerfer
+ *
+ *   CPLEDBar is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   CPLEDBar is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with CPLEDBar.  If not, see <http://www.gnu.org/licenses/>.
+ *
+
+  This project is a realisation of the ideas presented by Ivan Miranda
+  and Tom Stanton for a LED bar to project pictures and text into a long
+  exposure photograph.
+
+  Hardware setup:
+
+  Connections to SPI for the SD Card Reader (And +5V and GND from the Arduino)
+    D13 -> CLK
+    D12 -> MOSI
+    D11 -> MISO
+    D8  -> CS
+
+  Connections to the LED strips (Connect only DATA IN and GND)
+    D2 -> Strip 1 (Leftmost,top)
+    D3 -> Strip 2
+    D4 -> Strip 3
+    D5 -> Strip 4 (Status LEDs)
+
+  Connections to Switches (Switch common is ground)
+    A1 -> Switch 1 (Start)
+    A2 -> Switch 2 (Up)
+    A3 -> Switch 3 (Down)
+
+  The code reads files from a SD Card, the data of those must be 
+  binary, with three 252 byte segments (84*GRB) for each LED Strip. 
+*/
+
+#include <SPI.h>
+#include <SD.h>
+
+#include "uWS2812.h"
+
+/* For SD / SPI library */
+const int chipSelect = 8;
+
+/* LEDS array and status LED array*/
+uint8_t LEDS[84*3];
+uint8_t SLED[12];
+
+/*
+  Setup
+*/
+
+void setup() {
+  Serial.begin(9600);
+  
+  pinMode(8,OUTPUT);
+  pinMode(2,OUTPUT);
+  pinMode(3,OUTPUT);
+  pinMode(4,OUTPUT);
+  pinMode(5,OUTPUT);
+
+  pinMode(A1,INPUT_PULLUP);
+  pinMode(A2,INPUT_PULLUP);
+  pinMode(A3,INPUT_PULLUP);
+  
+  if (!SD.begin(chipSelect)) {
+    while (1);
+  }
+}
+
+/*
+  Helpers to make accessing the LED arrays a bit easier.
+*/
+
+void off()
+{
+  int i;
+  for (i=0; i<252; i++){
+    LEDS[i] = 0;
+  }
+  ws_2812_select_port(2);
+  ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+  ws_2812_select_port(3);
+  ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+  ws_2812_select_port(4);
+  ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+}
+
+void status_led_off()
+{
+  int i;
+  for (i=0; i<12; i++){
+    SLED[i] = 0;
+  }
+  ws_2812_select_port(5);
+  ws2812_sendarray_mask(SLED, 12, pinMask, ws2812_port, ws2812_port_reg);
+}
+
+void status_led(uint8_t num, uint8_t r, uint8_t g, uint8_t b)
+{
+  SLED[num*3] = g;
+  SLED[(num*3)+1] = r;
+  SLED[(num*3)+2] = b;
+  ws_2812_select_port(5);
+  ws2812_sendarray_mask(SLED, 12, pinMask, ws2812_port, ws2812_port_reg);
+}
+
+/*
+  Main loop follows 
+*/
+
+char *files[]={"out0.gb","out1.gb","out2.gb","out3.gb"};
+
+void loop() 
+{
+  int i;
+  bool menu = true;
+
+  int num = 0;
+
+  off();
+  delay(25);
+  status_led_off();
+
+  status_led(0,64,0,0);
+  
+  while (menu) {
+    if (digitalRead(A1) == 0)
+      menu=false;
+
+    if (digitalRead(A2) == 0) {
+      status_led_off();
+      if (num == 3)
+        num = 0;
+      else
+        num++;
+      delay(25);
+      status_led(num,64,0,0);
+      while (!digitalRead(A2));
+      delay(10);
+    }
+
+    if (digitalRead(A3) == 0) {
+      status_led_off();
+      
+      if (num == 0)
+        num = 3;
+      else
+        num--;
+      delay(25);
+      status_led(num,64,0,0);
+      while (!digitalRead(A3));
+      delay(10);
+    }
+  }
+
+  status_led_off();
+
+  Serial.println(files[num]);
+  File dataFile = SD.open(files[num]);
+
+  while (true) {
+    if (dataFile.available()) {
+      dataFile.read(LEDS, 252);
+    }
+    
+    ws_2812_select_port(4);
+    ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+  
+    if (dataFile.available()) {
+      dataFile.read(LEDS, 252);
+    }
+  
+    ws_2812_select_port(3);
+    ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+  
+    if (dataFile.available()) {
+      dataFile.read(LEDS, 252);
+    }
+  
+    ws_2812_select_port(2);
+    ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+  
+    if (dataFile.available()) {
+      delay(3);
+    }
+    else {
+      Serial.println("done");
+      dataFile.close();
+      
+      for (i=0; i<252; i++){
+        LEDS[i] = 0;
+      }
+      ws_2812_select_port(2);
+      ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+      ws_2812_select_port(3);
+      ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+      ws_2812_select_port(4);
+      ws2812_sendarray_mask(LEDS, 84*3, pinMask, ws2812_port, ws2812_port_reg);
+
+      delay (15000);
+      break;
+    }
+    
+  } 
+
+}
